@@ -1,24 +1,19 @@
-from executor import execute_mission
-from parser import MissionParseError, parse_command
+from fastapi import FastAPI
+from backend.api.routes import router
 
-def main() -> None:
+app = FastAPI(
+    title="Tianma Pathfinder API",
+    version="0.1.0",
+)
 
-    # 命令
-    command = input("Rover command: ")
+app.include_router(
+    router,
+    prefix="/api",
+)
 
-    try:
-        mission = parse_command(command)
-        print("\nValidated mission:")
-        print(mission.model_dump_json(indent=2))
-
-        print("\nExecutor")
-        execute_mission(mission)
-
-    except MissionParseError as exc:
-        print(f"Command rejected: {exc}")
-
-    except Exception as exc:
-        print(f"Unexpected error: {exc}")
-
-if __name__ == "__main__":
-    main()
+@app.get("/health")
+def health_check():
+    return {
+        "status": "ok",
+        "service": "tianma-pathfinder",
+    }

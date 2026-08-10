@@ -40,5 +40,3 @@ class Mission(BaseModel):
             )
 
         return self
-
-        

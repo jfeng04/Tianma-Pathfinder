@@ -1,7 +1,7 @@
 from pydantic import ValidationError
 
-from llm_client import request_mission_json
-from schemas import Mission
+from backend.language.llm_client import request_mission_json
+from backend.language.schemas import Mission
 
 class MissionParseError(Exception):
     pass
