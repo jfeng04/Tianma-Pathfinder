@@ -20,6 +20,7 @@ Allowed actions:
 - inspect
 - stop
 - return_to_start
+- unsupported
 
 Allowed object types:
 - cylinder
@@ -70,6 +71,29 @@ Required JSON format:
 
 For stop and return_to_start commands, target must be null. If the user does not specify a stopping distance, omit stop_distance_m.
 Never return null for stop_distance_m.
+
+Unsupported commands:
+
+If the user's request is not a rover mission supported by the actions
+and object types above, return:
+
+{
+  "action": "unsupported",
+  "target": null,
+  "constraints": []
+}
+
+Examples of unsupported commands:
+
+- "Write me a poem."
+- "What is the capital of France?"
+- "Tell me a joke."
+- "Send an email."
+- "Play music."
+- "Cook dinner."
+
+Do NOT convert unrelated or unsupported requests into "stop".
+Use "stop" only when the user is explicitly instructing the rover to stop.
 """
 
 def request_mission_json(command: str) -> str:

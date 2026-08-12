@@ -20,4 +20,10 @@ def parse_command(command: str) -> Mission:
             f"The LLM produced an invalid mission:\n{raw_json}"
         ) from exc
 
+
+    if mission.action == "unsupported":
+        raise MissionParseError(
+            "The command is not a supported Tianma mission."
+        )
+
     return mission

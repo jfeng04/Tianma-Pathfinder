@@ -21,7 +21,7 @@ def parse_mission(request: ParseMissionRequest) -> Mission:
 
     if not command:
         raise HTTPException(
-            status_code=442,
+            status_code=422,
             detail="Command cannot be empty."
         )
 
@@ -30,6 +30,6 @@ def parse_mission(request: ParseMissionRequest) -> Mission:
 
     except MissionParseError as exc:
         raise HTTPException(
-            status_code=442,
+            status_code=422,
             detail=str(exc),
         ) from exc
