@@ -45,3 +45,7 @@ export interface Mission {
 
   constraints: Constraint[];
 }
+
+export interface TranscriptionResponse {
+  text: string;
+}

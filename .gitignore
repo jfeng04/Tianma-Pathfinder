@@ -1,3 +1,17 @@
-.DS_Store
-.env
+# Python
+__pycache__/
+*.py[cod]
+
+# 虚拟环境
 venv/
+.venv/
+
+# 环境变量和秘密
+.env
+
+# Node / React
+node_modules/
+dist/
+
+# macOS
+.DS_Store

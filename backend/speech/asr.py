@@ -1,34 +1,135 @@
+from functools import lru_cache
 from pathlib import Path
-import librosa
+import subprocess
+
+import numpy as np
 from transformers import pipeline
 
-def transcribe_audio(audio_path: str) -> str:
-    path = Path(audio_path)
 
-    # 如果此路径不存在
-    if not path.exists():
-        raise FileNotFoundError(f"Audio not found: {path}")
+MODEL_NAME = "openai/whisper-small"
+SAMPLE_RATE = 16000
 
-    # librosa 架构会直接处理 w4a 文件
-    audio_array, sampling_rate = librosa.load(str(path), sr=16000)
 
-    # 语音转文字的管道
-    transcriber = pipeline(
+@lru_cache(maxsize=1)
+def get_transcriber():
+    """
+    一次性读取 ASR 模型，之后重复使用。
+    """
+    return pipeline(
         task="automatic-speech-recognition",
-        model="openai/whisper-small"
+        model=MODEL_NAME,
     )
 
-    # 使用管道取出文本
-    result = transcriber({"raw": audio_array, "sampling_rate": sampling_rate})
+
+def decode_audio(audio_path: Path) -> np.ndarray:
+    """
+    使用 FFmpeg 将不同格式的音频统一转换为：
+    - mono
+    - 16 kHz
+    - float32 waveform
+    """
+
+    command = [
+        "ffmpeg",
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+
+        "-i",
+        str(audio_path),
+
+        "-ac",
+        "1",
+
+        "-ar",
+        str(SAMPLE_RATE),
+
+        "-f",
+        "f32le",
+
+        "pipe:1",
+    ]
+
+    try:
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "FFmpeg is not installed or is not available on PATH."
+        ) from exc
+
+    except subprocess.CalledProcessError as exc:
+        error_message = exc.stderr.decode(
+            "utf-8",
+            errors="replace",
+        )
+
+        raise RuntimeError(
+            f"FFmpeg could not decode the audio:\n{error_message}"
+        ) from exc
+
+    audio_array = np.frombuffer(
+        result.stdout,
+        dtype=np.float32,
+    ).copy()
+
+    if audio_array.size == 0:
+        raise ValueError(
+            "Decoded audio contains no samples."
+        )
+
+    return audio_array
+
+
+def transcribe_audio(audio_path: str) -> str:
+    """
+    语音转文字。
+    """
+
+    path = Path(audio_path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Audio not found: {path}"
+        )
+
+    audio_array = decode_audio(path)
+
+    transcriber = get_transcriber()
+
+    result = transcriber(
+        {
+            "raw": audio_array,
+            "sampling_rate": SAMPLE_RATE,
+        }
+    )
+
     return result["text"].strip()
 
-if __name__ == "__main__":
-    # 召唤 transcribe_audio 函数以返回转换后的文本
-    BASE_DIR = Path(__file__).resolve().parent
-    samples_dir = BASE_DIR / "samples"
 
-    for audio_file in samples_dir.glob("*.m4a"):
-        if audio_file.is_file() and not audio_file.name.startswith("."):
-            print(f"\nProcessing: {audio_file.name}")
-            text = transcribe_audio(audio_file)
-            print(f"Transcript: {text}")
+if __name__ == "__main__":
+    base_dir = Path(__file__).resolve().parent
+    samples_dir = base_dir / "samples"
+
+    for audio_file in samples_dir.glob("*"):
+        if (
+            audio_file.is_file()
+            and not audio_file.name.startswith(".")
+        ):
+            print(
+                f"\nProcessing: {audio_file.name}"
+            )
+
+            text = transcribe_audio(
+                str(audio_file)
+            )
+
+            print(
+                f"Transcript: {text}"
+            )
