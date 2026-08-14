@@ -15,3 +15,7 @@ dist/
 
 # macOS
 .DS_Store
+
+# 生成图像识别文件
+backend/perception/outputs/
+backend/perception/samples/
