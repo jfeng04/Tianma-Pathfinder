@@ -52,8 +52,8 @@ def get_detector():
     return processor, model, device
 
 
-def detect_objects(
-    image_path: str,
+def detect_image(
+    image: Image.Image,
     text_labels: list[str],
     threshold: float = 0.4,
     text_threshold: float = 0.3,
@@ -67,19 +67,13 @@ def detect_objects(
     - 后处理 （post-processor）返回 boxes、scores、以及 text_labels
     """
 
-    path = Path(image_path)
-
-    if not path.exists():
-        raise FileNotFoundError(f"Image not found: {path}")
-
-    if not text_labels:
-        raise ValueError("At least one text label is required.")
-
-    image = Image.open(path).convert("RGB")
+    image = image.convert("RGB")
 
     processor, model, device = get_detector()
 
-    labels_for_model = [text_labels]
+    labels_for_model = [
+        text_labels
+    ]
 
     inputs = processor(
         images=image,
@@ -95,7 +89,12 @@ def detect_objects(
             outputs,
             threshold=threshold,
             text_threshold=text_threshold,
-            target_sizes=[(image.height, image.width)],
+            target_sizes=[
+                (
+                    image.height,
+                    image.width,
+                )
+            ],
         )
     )
 
@@ -111,16 +110,82 @@ def detect_objects(
         detections.append(
             Detection(
                 label=label,
-                confidence=round(score.item(), 4,),
+                confidence=round(
+                    score.item(),
+                    4,
+                ),
                 bbox=[
                     round(value, 2)
-                    for value
-                    in box.tolist()
+                    for value in box.tolist()
                 ],
             )
         )
 
     return detections
+
+
+def detect_objects(
+    image_path: str,
+    text_labels: list[str],
+    threshold: float = 0.4,
+    text_threshold: float = 0.3,
+) -> list[Detection]:
+
+    path = Path(image_path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Image not found: {path}"
+        )
+
+    image = Image.open(path).convert("RGB")
+
+    return detect_image(
+        image=image,
+        text_labels=text_labels,
+        threshold=threshold,
+        text_threshold=text_threshold,
+    )
+
+def annotate_pil_image(
+    image: Image.Image,
+    detections: list[Detection],
+    output_path: str,
+) -> None:
+
+    annotated = image.copy().convert("RGB")
+
+    draw = ImageDraw.Draw(annotated)
+
+    for detection in detections:
+        x1, y1, x2, y2 = detection.bbox
+
+        draw.rectangle(
+            [x1, y1, x2, y2],
+            outline="red",
+            width=4,
+        )
+
+        draw.text(
+            (
+                x1,
+                max(0, y1 - 15),
+            ),
+            (
+                f"{detection.label} "
+                f"{detection.confidence:.2f}"
+            ),
+            fill="red",
+        )
+
+    output = Path(output_path)
+
+    output.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    annotated.save(output)
 
 def annotate_image(
     image_path: str,
