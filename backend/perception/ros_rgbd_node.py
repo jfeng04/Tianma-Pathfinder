@@ -27,6 +27,22 @@ from backend.perception.geometry import (
     pixel_to_camera_point,
 )
 
+from backend.perception.models import (
+    CameraPoint,
+    Detection,
+    PerceivedObject,
+)
+
+from backend.language.schemas import (
+    Mission,
+    Target,
+)
+
+from backend.mission.resolver import (
+    TargetResolutionError,
+    resolve_target,
+)
+
 
 RGB_TOPIC = "/tianma/front_rgbd/image"
 
@@ -34,12 +50,71 @@ DEPTH_TOPIC = "/tianma/front_rgbd/depth_image"
 
 CAMERA_INFO_TOPIC = "/tianma/front_rgbd/camera_info"
 
-
 LABELS = [
-    "box",
-    "cylinder",
+    "red box",
+    "red cylinder",
+    "blue cylinder",
 ]
 
+OBJECT_TYPES = (
+    "cylinder",
+    "box",
+    "gate",
+)
+
+COLORS = (
+    "red",
+    "blue",
+    "green",
+    "yellow",
+)
+
+TEST_MISSION = Mission(
+    action="navigate",
+
+    target=Target(
+        object_type="box",
+        spatial_hint="left",
+    ),
+)
+
+def build_perceived_object(
+    detection,
+    camera_point,
+) -> PerceivedObject:
+
+    label = detection.label.lower()
+
+    object_type = next(
+        (
+            value
+            for value in OBJECT_TYPES
+            if value in label
+        ),
+        None,
+    )
+
+    if object_type is None:
+        raise ValueError(
+            "Could not determine object type "
+            f"from label '{detection.label}'."
+        )
+
+    color = next(
+        (
+            value
+            for value in COLORS
+            if value in label
+        ),
+        None,
+    )
+
+    return PerceivedObject(
+        object_type=object_type,
+        color=color,
+        detection=detection,
+        camera_point=camera_point,
+    )
 
 class RgbdPerceptionNode(Node):
 
@@ -56,7 +131,6 @@ class RgbdPerceptionNode(Node):
         # 处理单一个帧
         self.processed = False
 
-
         # Camera calibration subscription
         self.camera_info_sub = (
             self.create_subscription(
@@ -67,7 +141,6 @@ class RgbdPerceptionNode(Node):
             )
         )
 
-
         # RGB 订阅
         self.rgb_sub = Subscriber(
             self,
@@ -76,7 +149,6 @@ class RgbdPerceptionNode(Node):
             qos_profile=qos_profile_sensor_data,
         )
 
-
         # 深度
         self.depth_sub = Subscriber(
             self,
@@ -84,7 +156,6 @@ class RgbdPerceptionNode(Node):
             DEPTH_TOPIC,
             qos_profile=qos_profile_sensor_data,
         )
-
 
         # 配对 RBG 和深度帧
         self.synchronizer = (
@@ -101,7 +172,6 @@ class RgbdPerceptionNode(Node):
         self.synchronizer.registerCallback(
             self.rgbd_callback
         )
-
 
         self.get_logger().info(
             "Tianma RGBD perception node started."
@@ -122,7 +192,6 @@ class RgbdPerceptionNode(Node):
         depth_msg: Image,
     ) -> None:
 
-
         if self.processed:
             return
 
@@ -131,7 +200,6 @@ class RgbdPerceptionNode(Node):
                 "Waiting for camera info..."
             )
             return
-
 
         # ROS RGB -> NumPy
 
@@ -173,7 +241,6 @@ class RgbdPerceptionNode(Node):
                 f"{depth_msg.encoding}"
             )
 
-
         # NumPy RGB -> PIL image
 
         pil_image = PILImage.fromarray(
@@ -186,7 +253,6 @@ class RgbdPerceptionNode(Node):
             text_labels=LABELS,
         )
 
-
         if not detections:
             self.get_logger().warning(
                 "No objects detected."
@@ -194,6 +260,7 @@ class RgbdPerceptionNode(Node):
 
             return
 
+        perceived_objects: list[PerceivedObject] = []
         # Detection -> pixel -> depth -> XYZ
         for detection in detections:
 
@@ -202,16 +269,13 @@ class RgbdPerceptionNode(Node):
                 detection
             )
 
-
             try:
-
                 # 找到像素点边缘的深度
                 depth = get_depth_near_pixel(
                     depth_image=depth_m,
                     u=u,
                     v=v,
                 )
-
 
                 # 转化:
                 #
@@ -227,15 +291,30 @@ class RgbdPerceptionNode(Node):
                     camera_info=self.camera_info,
                 )
 
+                try:
+                    perceived_object = (
+                        build_perceived_object(
+                            detection=detection,
+                            camera_point=point,
+                        )
+                    )
+
+                except ValueError as exc:
+                    self.get_logger().warning(
+                        str(exc)
+                    )
+                    continue
+
+                perceived_objects.append(
+                    perceived_object
+                )
 
             except ValueError as exc:
 
                 self.get_logger().warning(
                     f"{detection.label}: {exc}"
                 )
-
                 continue
-
 
             self.get_logger().info(
                 "\n"
@@ -272,11 +351,42 @@ class RgbdPerceptionNode(Node):
             output_path=str(output_path),
         )
 
-
         self.get_logger().info(
             "Annotated Gazebo frame saved to "
             f"{output_path}"
         )
+
+        if perceived_objects:
+            try:
+                resolved = resolve_target(
+                    TEST_MISSION,
+                    perceived_objects,
+                )
+
+                point = resolved.camera_point
+
+                self.get_logger().info(
+                    "\n"
+                    "RESOLVED TARGET\n"
+                    f"Object: "
+                    f"{resolved.object_type}\n"
+                    f"Color: "
+                    f"{resolved.color}\n"
+                    f"Detector label: "
+                    f"{resolved.detection.label}\n"
+                    f"Confidence: "
+                    f"{resolved.detection.confidence:.3f}\n"
+                    f"Camera position: "
+                    f"x={point.x_m:.3f}, "
+                    f"y={point.y_m:.3f}, "
+                    f"z={point.z_m:.3f}"
+                )
+
+            except TargetResolutionError as exc:
+
+                self.get_logger().warning(
+                    f"Target resolution failed: {exc}"
+                )
 
         self.processed = True
 
@@ -296,7 +406,6 @@ def main() -> None:
     finally:
         node.destroy_node()
         rclpy.shutdown()
-
 
 if __name__ == "__main__":
     main()

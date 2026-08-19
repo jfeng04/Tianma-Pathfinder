@@ -1,15 +1,13 @@
 import numpy as np
 
 from pydantic import BaseModel
+from backend.perception.models import (
+    CameraPoint,
+    Detection,
+)
 from sensor_msgs.msg import CameraInfo
 
 from backend.perception.detector import Detection
-
-
-class CameraPoint(BaseModel):
-    x_m: float
-    y_m: float
-    z_m: float
 
 
 def get_detection_center(

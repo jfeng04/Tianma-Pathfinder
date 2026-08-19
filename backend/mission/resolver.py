@@ -1,93 +1,114 @@
 import math
-from schemas import Mission
-from world import WorldObject, WorldState
+
+from backend.language.schemas import Mission
+from backend.perception.models import PerceivedObject
+
 
 class TargetResolutionError(Exception):
     pass
 
-def distance_from_rover(
-    obj: WorldObject,
-    world: WorldState,
+
+def distance_from_camera(
+    obj: PerceivedObject,
 ) -> float:
-    dx = obj.position.x - world.rover_position.x
-    dy = obj.position.y - world.rover_position.y
+    point = obj.camera_point
 
-    return math.hypot(dx, dy)
+    return math.sqrt(
+        point.x_m ** 2
+        + point.y_m ** 2
+        + point.z_m ** 2
+    )
 
-def lateral_position(
-    obj: WorldObject,
-    world: WorldState,
-) -> float:
-    """
-    正数代表左侧
-    负数代表右侧
-    """
-
-    heading_rad = math.radians(world.rover_heading_deg)
-
-    # 单位向量指向左侧
-    left_x = -math.sin(heading_rad)
-    left_y = math.cos(heading_rad)
-
-    dx = obj.position.x - world.rover_position.x
-    dy = obj.position.y - world.rover_position.y
-
-    return dx * left_x + dy * left_y
 
 def resolve_target(
     mission: Mission,
-    world: WorldState,
-) -> WorldObject:
-    if mission.target is None:
+    objects: list[PerceivedObject],
+) -> PerceivedObject:
+
+    if mission.action not in {
+        "navigate",
+        "inspect",
+    }:
         raise TargetResolutionError(
-            f"Action '{mission.action}' has no target."
+            f"Action '{mission.action}' "
+            "does not require target resolution."
         )
 
+    if mission.target is None:
+        raise TargetResolutionError(
+            "Mission has no target."
+        )
+
+    target = mission.target
+
+    # 匹配对象类型
     candidates = [
         obj
-        for obj in world.objects
-        if obj.object_type == mission.target.object_type
-        and (
-            mission.target.color is None
-            or obj.color == mission.target.color
-        )
+        for obj in objects
+        if obj.object_type
+        == target.object_type
     ]
+
+    # 如果收到请求，配上颜色
+    if target.color is not None:
+        candidates = [obj for obj in candidates
+            if obj.color == target.color
+        ]
 
     if not candidates:
         raise TargetResolutionError(
-            "No object matches the requested type and color."
+            "No perceived object matches "
+            f"target type={target.object_type}, "
+            f"color={target.color}."
         )
 
-    hint = mission.target.spatial_hint
+    # 处理空间提示
+    hint = target.spatial_hint
+
+    if hint == "left":
+        return min(
+            candidates,
+            key=lambda obj:
+                obj.camera_point.x_m,
+        )
+
+
+    if hint == "right":
+        return max(
+            candidates,
+            key=lambda obj:
+                obj.camera_point.x_m,
+        )
+
 
     if hint == "nearest":
         return min(
             candidates,
-            key=lambda obj: distance_from_rover(obj, world),
+            key=distance_from_camera,
         )
+
 
     if hint == "farthest":
         return max(
             candidates,
-            key=lambda obj: distance_from_rover(obj, world),
+            key=distance_from_camera,
         )
 
-    if hint == "left":
+
+    if hint == "far_end":
         return max(
             candidates,
-            key=lambda obj: lateral_position(obj, world),
+            key=lambda obj:
+                obj.camera_point.z_m,
         )
 
-    if hint == "right":
-        return min(
-            candidates,
-            key=lambda obj: lateral_position(obj, world),
-        )
-
+    # 无空间提示
     if len(candidates) == 1:
         return candidates[0]
 
+
     raise TargetResolutionError(
-        f"Found {len(candidates)} matching objects, "
-        "but the command does not specify which one."
+        "Target is ambiguous: "
+        f"{len(candidates)} objects match "
+        "but no spatial hint was provided."
     )

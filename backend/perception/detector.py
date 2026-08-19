@@ -2,8 +2,8 @@ from functools import lru_cache
 from pathlib import Path
 
 import torch
+from backend.perception.models import Detection
 from PIL import Image, ImageDraw
-from pydantic import BaseModel
 from transformers import (
     AutoModelForZeroShotObjectDetection,
     AutoProcessor,
@@ -11,12 +11,6 @@ from transformers import (
 
 
 MODEL_ID = "IDEA-Research/grounding-dino-tiny"
-
-
-class Detection(BaseModel):
-    label: str
-    confidence: float
-    bbox: list[float]
 
 def get_device() -> torch.device:
     """
