@@ -16,6 +16,19 @@ from sensor_msgs.msg import (
     Image,
 )
 
+from geometry_msgs.msg import PointStamped
+
+from rclpy.duration import Duration
+from rclpy.time import Time
+
+from tf2_geometry_msgs import do_transform_point
+
+from tf2_ros import (
+    Buffer,
+    TransformException,
+    TransformListener,
+)
+
 from backend.perception.detector import (
     annotate_pil_image,
     detect_image,
@@ -125,6 +138,13 @@ class RgbdPerceptionNode(Node):
 
         self.bridge = CvBridge()
 
+        self.tf_buffer = Buffer()
+
+        self.tf_listener = TransformListener(
+            self.tf_buffer,
+            self,
+        )
+
         # 保存最新的镜头信息
         self.camera_info = None
 
@@ -177,6 +197,34 @@ class RgbdPerceptionNode(Node):
             "Tianma RGBD perception node started."
         )
 
+    def transform_camera_point_to_odom(self, point,) -> PointStamped:
+
+        camera_point = PointStamped()
+
+        camera_point.header.frame_id = (
+            "tianma_camera_optical"
+        )
+
+        camera_point.point.x = point.x_m
+        camera_point.point.y = point.y_m
+        camera_point.point.z = point.z_m
+
+
+        transform = (
+            self.tf_buffer.lookup_transform(
+                "odom",
+                "tianma_camera_optical",
+                Time(),
+                timeout=Duration(
+                    seconds=1.0
+                ),
+            )
+        )
+
+        return do_transform_point(
+            camera_point,
+            transform,
+        )
 
     def camera_info_callback(
         self,
@@ -381,6 +429,31 @@ class RgbdPerceptionNode(Node):
                     f"y={point.y_m:.3f}, "
                     f"z={point.z_m:.3f}"
                 )
+
+                try:
+                    odom_point = (
+                        self.transform_camera_point_to_odom(
+                            resolved.camera_point
+                        )
+                    )
+                    self.get_logger().info(
+                        "\n"
+                        "ODOM TARGET\n"
+                        f"x="
+                        f"{odom_point.point.x:.3f}, "
+                        f"y="
+                        f"{odom_point.point.y:.3f}, "
+                        f"z="
+                        f"{odom_point.point.z:.3f}"
+                    )
+
+
+                except TransformException as exc:
+
+                    self.get_logger().warning(
+                        "Could not transform target "
+                        f"into odom frame: {exc}"
+                    )
 
             except TargetResolutionError as exc:
 
